@@ -1,6 +1,16 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environment
 .venv/
 
-experients/
+# Package metadata
+*.egg-info/
 
-data/
+# Experiment outputs
+experiments/*
+!experiments/.gitkeep
 
+# Logs
+*.log
