@@ -14,3 +14,6 @@ experiments/*
 
 # Logs
 *.log
+
+# Data
+data/
