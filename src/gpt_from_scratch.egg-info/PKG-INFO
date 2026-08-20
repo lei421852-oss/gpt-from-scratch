@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: gpt-from-scratch
+Version: 0.1.0
+Summary: A GPT implementation from scratch
+Requires-Python: >=3.10
+Requires-Dist: torch==2.13.0
+Requires-Dist: numpy
+Requires-Dist: tqdm
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: ruff; extra == "dev"

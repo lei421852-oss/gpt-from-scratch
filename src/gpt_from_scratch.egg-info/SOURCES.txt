@@ -1,0 +1,12 @@
+README.md
+pyproject.toml
+src/gpt/__init__.py
+src/gpt/data/__init__.py
+src/gpt/model/__init__.py
+src/gpt/trainer/__init__.py
+src/gpt/utils/__init__.py
+src/gpt_from_scratch.egg-info/PKG-INFO
+src/gpt_from_scratch.egg-info/SOURCES.txt
+src/gpt_from_scratch.egg-info/dependency_links.txt
+src/gpt_from_scratch.egg-info/requires.txt
+src/gpt_from_scratch.egg-info/top_level.txt
