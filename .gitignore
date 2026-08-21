@@ -16,4 +16,5 @@ experiments/*
 *.log
 
 # Data
-data/
+data/processed
+data/raw
