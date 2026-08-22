@@ -2,6 +2,10 @@ training:
   batch_size: 32
   learning_rate: 0.0003
   max_steps: 10000
+  validation_split: 0.1
   eval_interval: 500
+  eval_batches: 20
   log_interval: 100
+  checkpoint_interval: 1000
   seed: 42
+  experiment_name: baseline
