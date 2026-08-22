@@ -45,6 +45,21 @@ Model and training hyperparameters live in `configs/model.yaml` and
 └── metrics.jsonl     # train and validation loss records
 ```
 
+## Generate text
+
+```bash
+python scripts/generate.py \
+  --checkpoint experiments/<run>/checkpoints/last.pt \
+  --prompt "ROMEO:" \
+  --max-new-tokens 500 \
+  --temperature 0.8 \
+  --top-k 40
+```
+
+Use `--temperature 0` for deterministic greedy generation. Higher
+temperatures increase randomness; `--top-k` restricts sampling to the most
+likely tokens.
+
 ## Test
 
 ```bash
