@@ -3,4 +3,5 @@ training:
   learning_rate: 0.0003
   max_steps: 10000
   eval_interval: 500
+  log_interval: 100
   seed: 42

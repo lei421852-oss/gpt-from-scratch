@@ -3,7 +3,7 @@ from pathlib import Path
 from gpt.utils.config import load_yaml
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_load_model_config():
