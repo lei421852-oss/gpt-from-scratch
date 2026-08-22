@@ -1,3 +1,4 @@
+import random
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -15,6 +16,8 @@ class Trainer:
         scheduler=None,
         gradient_clip_norm=None,
         amp=True,
+        artifact_metadata=None,
+        data_generator=None,
     ):
         if gradient_clip_norm is not None and gradient_clip_norm <= 0:
             raise ValueError("gradient_clip_norm must be greater than zero")
@@ -25,6 +28,8 @@ class Trainer:
         self.experiment = experiment
         self.scheduler = scheduler
         self.gradient_clip_norm = gradient_clip_norm
+        self.artifact_metadata = dict(artifact_metadata or {})
+        self.data_generator = data_generator
         self.amp_enabled = amp and device.type == "cuda"
         self.amp_dtype = (
             torch.bfloat16
@@ -106,14 +111,36 @@ class Trainer:
 
         return sum(losses) / len(losses)
 
+    def _random_state(self):
+        state = {
+            "python": random.getstate(),
+            "torch": torch.get_rng_state(),
+        }
+        if torch.cuda.is_available():
+            state["cuda"] = torch.cuda.get_rng_state_all()
+        if self.data_generator is not None:
+            state["data_generator"] = self.data_generator.get_state()
+        return state
+
+    def _restore_random_state(self, state):
+        random.setstate(state["python"])
+        torch.set_rng_state(state["torch"].cpu())
+        if "cuda" in state and torch.cuda.is_available():
+            torch.cuda.set_rng_state_all(state["cuda"])
+        if "data_generator" in state and self.data_generator is not None:
+            self.data_generator.set_state(state["data_generator"].cpu())
+
     def save_checkpoint(self, path, step):
         checkpoint_path = Path(path)
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         checkpoint = {
+            "artifact_format_version": 1,
             "step": step,
             "model_state_dict": self.model.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "scaler_state_dict": self.scaler.state_dict(),
+            "random_state": self._random_state(),
+            **self.artifact_metadata,
         }
         if self.scheduler is not None:
             checkpoint["scheduler_state_dict"] = self.scheduler.state_dict()
@@ -131,6 +158,8 @@ class Trainer:
             self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         if "scaler_state_dict" in checkpoint:
             self.scaler.load_state_dict(checkpoint["scaler_state_dict"])
+        if "random_state" in checkpoint:
+            self._restore_random_state(checkpoint["random_state"])
         return checkpoint["step"]
 
     def _log_metrics(self, metrics):

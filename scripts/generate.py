@@ -5,9 +5,6 @@ import torch
 
 from gpt.data.tokenizer import CharacterTokenizer
 from gpt.model.gpt import GPT
-from gpt.utils.config import load_yaml
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def parse_args():
@@ -18,30 +15,45 @@ def parse_args():
     parser.add_argument("--temperature", type=float, default=0.8)
     parser.add_argument("--top-k", type=int, default=40)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument(
-        "--model-config",
-        type=Path,
-        default=PROJECT_ROOT / "configs" / "model.yaml",
-    )
     return parser.parse_args()
 
 
-def load_model(config, checkpoint_path, device):
-    model = GPT(
-        vocab_size=config.vocab_size,
-        block_size=config.block_size,
-        embedding_dim=config.embedding_dim,
-        num_layers=config.num_layers,
-        num_heads=config.num_heads,
-        dropout=config.dropout,
-    ).to(device)
+def load_artifact(checkpoint_path, device):
     checkpoint = torch.load(
         checkpoint_path,
         map_location=device,
         weights_only=False,
     )
+    required_fields = {
+        "artifact_format_version",
+        "model_config",
+        "tokenizer",
+        "model_state_dict",
+    }
+    missing_fields = required_fields - checkpoint.keys()
+    if missing_fields:
+        missing = ", ".join(sorted(missing_fields))
+        raise ValueError(
+            f"Checkpoint is not a portable model artifact; missing: {missing}"
+        )
+    if checkpoint["artifact_format_version"] != 1:
+        raise ValueError("Unsupported model artifact format version")
+
+    config = checkpoint["model_config"]
+    tokenizer = CharacterTokenizer.from_dict(checkpoint["tokenizer"])
+    if tokenizer.vocab_size != config["vocab_size"]:
+        raise ValueError("Tokenizer vocabulary does not match model config")
+
+    model = GPT(
+        vocab_size=config["vocab_size"],
+        block_size=config["block_size"],
+        embedding_dim=config["embedding_dim"],
+        num_layers=config["num_layers"],
+        num_heads=config["num_heads"],
+        dropout=config["dropout"],
+    ).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
-    return model
+    return model, tokenizer
 
 
 def main():
@@ -51,16 +63,7 @@ def main():
         torch.cuda.manual_seed_all(args.seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model_config = load_yaml(args.model_config).model
-    corpus = (PROJECT_ROOT / "data" / "raw" / "input.txt").read_text(
-        encoding="utf-8"
-    )
-    tokenizer = CharacterTokenizer(corpus)
-    if tokenizer.vocab_size != model_config.vocab_size:
-        raise ValueError(
-            "Configured vocab_size does not match the tokenizer: "
-            f"{model_config.vocab_size} != {tokenizer.vocab_size}"
-        )
+    model, tokenizer = load_artifact(args.checkpoint, device)
 
     try:
         prompt_ids = tokenizer.encode(args.prompt)
@@ -69,7 +72,6 @@ def main():
             f"Prompt contains a character outside the vocabulary: {error.args[0]!r}"
         ) from error
 
-    model = load_model(model_config, args.checkpoint, device)
     input_ids = torch.tensor(
         [prompt_ids],
         dtype=torch.long,

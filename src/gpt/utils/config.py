@@ -1,5 +1,6 @@
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 import yaml
 
@@ -19,6 +20,13 @@ class Config:
 
             setattr(self, key, value)
 
+    def to_dict(self):
+        return {
+            key: value.to_dict() if isinstance(value, Config) else value
+            for key, value in self.__dict__.items()
+            if key != "_data"
+        }
+
 
 def load_yaml(path: str | Path) -> Config:
     """Load a YAML mapping and return it as a Config object."""
@@ -31,9 +39,8 @@ def load_yaml(path: str | Path) -> Config:
         data = {}
 
     if not isinstance(data, Mapping):
-        raise ValueError(
+        raise TypeError(
             f"Configuration root must be a mapping: {config_path}"
         )
 
     return Config(data)
-

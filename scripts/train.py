@@ -43,9 +43,13 @@ def parse_args():
 
 
 def set_seed(seed):
-    torch.manual_seed(seed)
+    random_seed = seed
+    import random
+
+    random.seed(random_seed)
+    torch.manual_seed(random_seed)
     if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
+        torch.cuda.manual_seed_all(random_seed)
 
 
 def split_tokens(tokens, validation_split, block_size):
@@ -95,12 +99,12 @@ def main():
         validation_tokens,
         block_size=model_config.block_size,
     )
-    generator = torch.Generator().manual_seed(train_config.seed)
+    data_generator = torch.Generator().manual_seed(train_config.seed)
     train_loader = DataLoader(
         train_dataset,
         batch_size=train_config.batch_size,
         shuffle=True,
-        generator=generator,
+        generator=data_generator,
     )
     validation_loader = DataLoader(
         validation_dataset,
@@ -136,6 +140,7 @@ def main():
         experiment_name,
         config_paths=(args.model_config, args.train_config),
     )
+    tokenizer.save(experiment.directory / "tokenizer.json")
     print(f"Experiment: {experiment.directory}")
 
     trainer = Trainer(
@@ -146,6 +151,12 @@ def main():
         scheduler=scheduler,
         gradient_clip_norm=train_config.gradient_clip_norm,
         amp=train_config.amp,
+        artifact_metadata={
+            "model_config": model_config.to_dict(),
+            "training_config": train_config.to_dict(),
+            "tokenizer": tokenizer.to_dict(),
+        },
+        data_generator=data_generator,
     )
     precision = (
         str(trainer.amp_dtype).removeprefix("torch.")
