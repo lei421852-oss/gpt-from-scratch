@@ -1,8 +1,8 @@
 import torch
-import torch.nn as nn
+from torch import nn
 
-from gpt.model.embedding import GPTEmbedding
 from gpt.model.block import GPTBlock
+from gpt.model.embedding import GPTEmbedding
 
 
 class GPT(nn.Module):

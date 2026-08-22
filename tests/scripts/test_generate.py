@@ -1,21 +1,9 @@
-import importlib.util
-from pathlib import Path
-
 import pytest
 import torch
 
+from gpt.artifacts import load_model_artifact
 from gpt.data.tokenizer import CharacterTokenizer
 from gpt.model.gpt import GPT
-
-GENERATE_SCRIPT = (
-    Path(__file__).resolve().parents[2] / "scripts" / "generate.py"
-)
-SPEC = importlib.util.spec_from_file_location(
-    "generate_script",
-    GENERATE_SCRIPT,
-)
-GENERATE_MODULE = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(GENERATE_MODULE)
 
 
 def make_artifact(path):
@@ -45,11 +33,12 @@ def test_load_artifact_requires_no_corpus_or_yaml(tmp_path):
     artifact_path = tmp_path / "model.pt"
     expected_model, expected_tokenizer = make_artifact(artifact_path)
 
-    model, tokenizer = GENERATE_MODULE.load_artifact(
+    model, tokenizer, checkpoint = load_model_artifact(
         artifact_path,
         torch.device("cpu"),
     )
 
+    assert checkpoint["artifact_format_version"] == 1
     assert tokenizer.to_dict() == expected_tokenizer.to_dict()
     for expected, actual in zip(
         expected_model.parameters(),
@@ -63,7 +52,7 @@ def test_load_artifact_rejects_legacy_checkpoint(tmp_path):
     torch.save({"model_state_dict": {}}, checkpoint_path)
 
     with pytest.raises(ValueError, match="not a portable model artifact"):
-        GENERATE_MODULE.load_artifact(
+        load_model_artifact(
             checkpoint_path,
             torch.device("cpu"),
         )

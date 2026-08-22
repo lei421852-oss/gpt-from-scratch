@@ -5,6 +5,8 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 
+from gpt.evaluation import evaluate_language_model
+
 
 class Trainer:
     def __init__(
@@ -42,6 +44,8 @@ class Trainer:
             enabled=self.scaler_enabled,
         )
         self.last_gradient_norm = None
+        self.best_validation_loss = float("inf")
+        self.best_step = None
 
     @staticmethod
     def _loss(logits, targets):
@@ -86,30 +90,16 @@ class Trainer:
         return loss.item()
 
     def evaluate(self, data_loader, max_batches=None):
-        if len(data_loader) == 0:
-            raise ValueError("data_loader must contain at least one batch")
-        if max_batches is not None and max_batches <= 0:
-            raise ValueError("max_batches must be greater than zero")
+        return self.evaluate_metrics(data_loader, max_batches)["loss"]
 
-        was_training = self.model.training
-        self.model.eval()
-        losses = []
-
-        try:
-            with torch.no_grad():
-                for batch_index, (x, y) in enumerate(data_loader):
-                    if max_batches is not None and batch_index >= max_batches:
-                        break
-
-                    x = x.to(self.device)
-                    y = y.to(self.device)
-                    with self._autocast_context():
-                        loss = self._loss(self.model(x), y)
-                    losses.append(loss.item())
-        finally:
-            self.model.train(was_training)
-
-        return sum(losses) / len(losses)
+    def evaluate_metrics(self, data_loader, max_batches=None):
+        return evaluate_language_model(
+            self.model,
+            data_loader,
+            self.device,
+            max_batches=max_batches,
+            amp=self.amp_enabled,
+        )
 
     def _random_state(self):
         state = {
@@ -140,6 +130,8 @@ class Trainer:
             "optimizer_state_dict": self.optimizer.state_dict(),
             "scaler_state_dict": self.scaler.state_dict(),
             "random_state": self._random_state(),
+            "best_validation_loss": self.best_validation_loss,
+            "best_step": self.best_step,
             **self.artifact_metadata,
         }
         if self.scheduler is not None:
@@ -160,6 +152,10 @@ class Trainer:
             self.scaler.load_state_dict(checkpoint["scaler_state_dict"])
         if "random_state" in checkpoint:
             self._restore_random_state(checkpoint["random_state"])
+        self.best_validation_loss = checkpoint.get(
+            "best_validation_loss", float("inf")
+        )
+        self.best_step = checkpoint.get("best_step")
         return checkpoint["step"]
 
     def _log_metrics(self, metrics):
@@ -224,21 +220,29 @@ class Trainer:
                     )
 
                 if validation_loader is not None and step % eval_interval == 0:
-                    validation_loss = self.evaluate(
+                    validation_metrics = self.evaluate_metrics(
                         validation_loader,
                         max_batches=eval_batches,
                     )
+                    validation_loss = validation_metrics["loss"]
                     print(
                         f"step {step}, validation loss "
-                        f"{validation_loss:.4f}"
+                        f"{validation_loss:.4f}, perplexity "
+                        f"{validation_metrics['perplexity']:.4f}"
                     )
                     self._log_metrics(
                         {
                             "step": step,
                             "split": "validation",
                             "loss": validation_loss,
+                            "perplexity": validation_metrics["perplexity"],
+                            "tokens": validation_metrics["tokens"],
                         }
                     )
+                    if validation_loss < self.best_validation_loss:
+                        self.best_validation_loss = validation_loss
+                        self.best_step = step
+                        self._save_named_checkpoint("best.pt", step)
 
                 if checkpoint_interval and step % checkpoint_interval == 0:
                     self._save_named_checkpoint(
@@ -250,4 +254,17 @@ class Trainer:
                     break
 
         self._save_named_checkpoint("last.pt", step)
+        if self.experiment is not None:
+            self.experiment.write_summary(
+                {
+                    "final_step": step,
+                    "final_train_loss": last_loss,
+                    "best_step": self.best_step,
+                    "best_validation_loss": (
+                        self.best_validation_loss
+                        if self.best_step is not None
+                        else None
+                    ),
+                }
+            )
         return last_loss

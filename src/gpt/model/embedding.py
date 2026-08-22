@@ -1,5 +1,5 @@
 import torch
-import torch.nn as nn
+from torch import nn
 
 
 class GPTEmbedding(nn.Module):
@@ -27,7 +27,7 @@ class GPTEmbedding(nn.Module):
 
     def forward(self, x):
 
-        batch_size, seq_len = x.shape
+        _batch_size, seq_len = x.shape
 
 
         token_emb = self.token_embedding(x)

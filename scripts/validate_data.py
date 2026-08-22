@@ -2,7 +2,6 @@ from pathlib import Path
 
 from gpt.data.validation import validate_text_file
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 DATA_PATH = (

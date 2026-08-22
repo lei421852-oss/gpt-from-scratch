@@ -1,8 +1,6 @@
 import torch
 
-from gpt.model.multi_head_attention import (
-    MultiHeadCausalSelfAttention
-)
+from gpt.model.multi_head_attention import MultiHeadCausalSelfAttention
 
 
 def test_multi_head_attention_shape():

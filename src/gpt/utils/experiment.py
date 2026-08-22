@@ -19,6 +19,7 @@ class Experiment:
         self.checkpoint_directory = self.directory / "checkpoints"
         self.checkpoint_directory.mkdir(parents=True, exist_ok=False)
         self.metrics_path = self.directory / "metrics.jsonl"
+        self.summary_path = self.directory / "summary.json"
 
         config_directory = self.directory / "configs"
         config_directory.mkdir()
@@ -29,6 +30,12 @@ class Experiment:
     def log_metrics(self, metrics):
         with self.metrics_path.open("a", encoding="utf-8") as file:
             file.write(json.dumps(metrics, ensure_ascii=False) + "\n")
+
+    def write_summary(self, summary):
+        self.summary_path.write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     def checkpoint_path(self, name):
         return self.checkpoint_directory / name

@@ -1,12 +1,7 @@
-import torch.nn as nn
+from torch import nn
 
-from gpt.model.multi_head_attention import (
-    MultiHeadCausalSelfAttention
-)
-
-from gpt.model.feed_forward import (
-    FeedForward
-)
+from gpt.model.feed_forward import FeedForward
+from gpt.model.multi_head_attention import MultiHeadCausalSelfAttention
 
 
 class GPTBlock(nn.Module):

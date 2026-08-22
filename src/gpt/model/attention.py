@@ -1,5 +1,5 @@
 import torch
-import torch.nn as nn
+from torch import nn
 
 
 class CausalSelfAttention(nn.Module):
@@ -43,7 +43,7 @@ class CausalSelfAttention(nn.Module):
 
     def forward(self, x):
 
-        B,T,C = x.shape
+        _B,T,C = x.shape
 
 
         qkv = self.qkv(x)

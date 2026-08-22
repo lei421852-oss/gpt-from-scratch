@@ -2,7 +2,7 @@ import argparse
 from pathlib import Path
 
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 
 from gpt.data.dataset import LanguageModelDataset
 from gpt.data.tokenizer import CharacterTokenizer
@@ -67,6 +67,21 @@ def split_tokens(tokens, validation_split, block_size):
     return train_tokens, validation_tokens
 
 
+def build_validation_loader(dataset, batch_size, eval_batches):
+    sample_count = min(len(dataset), batch_size * eval_batches)
+    indices = (
+        torch.linspace(0, len(dataset) - 1, steps=sample_count)
+        .round()
+        .long()
+        .tolist()
+    )
+    return DataLoader(
+        Subset(dataset, indices),
+        batch_size=batch_size,
+        shuffle=False,
+    )
+
+
 def main():
     args = parse_args()
     model_config = load_yaml(args.model_config).model
@@ -106,10 +121,10 @@ def main():
         shuffle=True,
         generator=data_generator,
     )
-    validation_loader = DataLoader(
+    validation_loader = build_validation_loader(
         validation_dataset,
-        batch_size=train_config.batch_size,
-        shuffle=False,
+        train_config.batch_size,
+        train_config.eval_batches,
     )
 
     model = GPT(
@@ -175,7 +190,7 @@ def main():
         log_interval=train_config.log_interval,
         validation_loader=validation_loader,
         eval_interval=train_config.eval_interval,
-        eval_batches=train_config.eval_batches,
+        eval_batches=None,
         checkpoint_interval=train_config.checkpoint_interval,
         start_step=start_step,
     )

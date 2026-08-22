@@ -28,3 +28,18 @@ def test_split_tokens_rejects_invalid_ratio(validation_split):
             validation_split=validation_split,
             block_size=2,
         )
+
+
+def test_validation_loader_samples_across_entire_dataset():
+    dataset = list(range(100))
+
+    loader = TRAIN_MODULE.build_validation_loader(
+        dataset,
+        batch_size=2,
+        eval_batches=3,
+    )
+    sampled_values = [value.item() for batch in loader for value in batch]
+
+    assert len(sampled_values) == 6
+    assert sampled_values[0] == 0
+    assert sampled_values[-1] == 99
