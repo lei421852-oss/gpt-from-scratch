@@ -1,7 +1,14 @@
 training:
   batch_size: 32
   learning_rate: 0.0003
+  min_learning_rate: 0.00003
+  warmup_steps: 500
   max_steps: 10000
+  weight_decay: 0.1
+  beta1: 0.9
+  beta2: 0.95
+  gradient_clip_norm: 1.0
+  amp: true
   validation_split: 0.1
   eval_interval: 500
   eval_batches: 20

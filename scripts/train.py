@@ -7,6 +7,8 @@ from torch.utils.data import DataLoader
 from gpt.data.dataset import LanguageModelDataset
 from gpt.data.tokenizer import CharacterTokenizer
 from gpt.model.gpt import GPT
+from gpt.trainer.optimizer import build_adamw
+from gpt.trainer.scheduler import WarmupCosineScheduler
 from gpt.trainer.trainer import Trainer
 from gpt.utils.config import load_yaml
 from gpt.utils.experiment import Experiment
@@ -114,9 +116,18 @@ def main():
         num_heads=model_config.num_heads,
         dropout=model_config.dropout,
     ).to(device)
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=train_config.learning_rate,
+    optimizer = build_adamw(
+        model,
+        learning_rate=train_config.learning_rate,
+        weight_decay=train_config.weight_decay,
+        betas=(train_config.beta1, train_config.beta2),
+    )
+    scheduler = WarmupCosineScheduler(
+        optimizer,
+        max_learning_rate=train_config.learning_rate,
+        min_learning_rate=train_config.min_learning_rate,
+        warmup_steps=train_config.warmup_steps,
+        max_steps=train_config.max_steps,
     )
 
     experiment_name = args.experiment_name or train_config.experiment_name
@@ -127,7 +138,22 @@ def main():
     )
     print(f"Experiment: {experiment.directory}")
 
-    trainer = Trainer(model, optimizer, device, experiment=experiment)
+    trainer = Trainer(
+        model,
+        optimizer,
+        device,
+        experiment=experiment,
+        scheduler=scheduler,
+        gradient_clip_norm=train_config.gradient_clip_norm,
+        amp=train_config.amp,
+    )
+    precision = (
+        str(trainer.amp_dtype).removeprefix("torch.")
+        if trainer.amp_enabled
+        else "float32"
+    )
+    print(f"Training precision: {precision}")
+
     start_step = trainer.load_checkpoint(args.resume) if args.resume else 0
     if args.resume:
         print(f"Resumed from step {start_step}: {args.resume}")

@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from pathlib import Path
 
 import torch
@@ -5,11 +6,37 @@ import torch.nn.functional as F
 
 
 class Trainer:
-    def __init__(self, model, optimizer, device, experiment=None):
+    def __init__(
+        self,
+        model,
+        optimizer,
+        device,
+        experiment=None,
+        scheduler=None,
+        gradient_clip_norm=None,
+        amp=True,
+    ):
+        if gradient_clip_norm is not None and gradient_clip_norm <= 0:
+            raise ValueError("gradient_clip_norm must be greater than zero")
+
         self.model = model
         self.optimizer = optimizer
         self.device = device
         self.experiment = experiment
+        self.scheduler = scheduler
+        self.gradient_clip_norm = gradient_clip_norm
+        self.amp_enabled = amp and device.type == "cuda"
+        self.amp_dtype = (
+            torch.bfloat16
+            if self.amp_enabled and torch.cuda.is_bf16_supported()
+            else torch.float16
+        )
+        self.scaler_enabled = self.amp_enabled and self.amp_dtype == torch.float16
+        self.scaler = torch.amp.GradScaler(
+            "cuda",
+            enabled=self.scaler_enabled,
+        )
+        self.last_gradient_norm = None
 
     @staticmethod
     def _loss(logits, targets):
@@ -19,17 +46,37 @@ class Trainer:
             targets.reshape(batch_size * sequence_length),
         )
 
+    def _autocast_context(self):
+        if not self.amp_enabled:
+            return nullcontext()
+        return torch.autocast(
+            device_type="cuda",
+            dtype=self.amp_dtype,
+        )
+
     def train_step(self, x, y):
         self.model.train()
         x = x.to(self.device)
         y = y.to(self.device)
-
-        logits = self.model(x)
-        loss = self._loss(logits, y)
-
         self.optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        self.optimizer.step()
+
+        with self._autocast_context():
+            loss = self._loss(self.model(x), y)
+
+        self.scaler.scale(loss).backward()
+        self.scaler.unscale_(self.optimizer)
+        max_norm = (
+            self.gradient_clip_norm
+            if self.gradient_clip_norm is not None
+            else float("inf")
+        )
+        gradient_norm = torch.nn.utils.clip_grad_norm_(
+            self.model.parameters(),
+            max_norm=max_norm,
+        )
+        self.last_gradient_norm = float(gradient_norm)
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
 
         return loss.item()
 
@@ -43,29 +90,34 @@ class Trainer:
         self.model.eval()
         losses = []
 
-        with torch.no_grad():
-            for batch_index, (x, y) in enumerate(data_loader):
-                if max_batches is not None and batch_index >= max_batches:
-                    break
+        try:
+            with torch.no_grad():
+                for batch_index, (x, y) in enumerate(data_loader):
+                    if max_batches is not None and batch_index >= max_batches:
+                        break
 
-                x = x.to(self.device)
-                y = y.to(self.device)
-                losses.append(self._loss(self.model(x), y).item())
+                    x = x.to(self.device)
+                    y = y.to(self.device)
+                    with self._autocast_context():
+                        loss = self._loss(self.model(x), y)
+                    losses.append(loss.item())
+        finally:
+            self.model.train(was_training)
 
-        self.model.train(was_training)
         return sum(losses) / len(losses)
 
     def save_checkpoint(self, path, step):
         checkpoint_path = Path(path)
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(
-            {
-                "step": step,
-                "model_state_dict": self.model.state_dict(),
-                "optimizer_state_dict": self.optimizer.state_dict(),
-            },
-            checkpoint_path,
-        )
+        checkpoint = {
+            "step": step,
+            "model_state_dict": self.model.state_dict(),
+            "optimizer_state_dict": self.optimizer.state_dict(),
+            "scaler_state_dict": self.scaler.state_dict(),
+        }
+        if self.scheduler is not None:
+            checkpoint["scheduler_state_dict"] = self.scheduler.state_dict()
+        torch.save(checkpoint, checkpoint_path)
 
     def load_checkpoint(self, path):
         checkpoint = torch.load(
@@ -75,6 +127,10 @@ class Trainer:
         )
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        if self.scheduler is not None and "scheduler_state_dict" in checkpoint:
+            self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        if "scaler_state_dict" in checkpoint:
+            self.scaler.load_state_dict(checkpoint["scaler_state_dict"])
         return checkpoint["step"]
 
     def _log_metrics(self, metrics):
@@ -114,13 +170,28 @@ class Trainer:
 
         while step < max_steps:
             for x, y in train_loader:
+                next_step = step + 1
+                if self.scheduler is not None:
+                    self.scheduler.step(next_step)
+
                 last_loss = self.train_step(x, y)
-                step += 1
+                step = next_step
 
                 if step == 1 or step % log_interval == 0:
-                    print(f"step {step}, train loss {last_loss:.4f}")
+                    learning_rate = self.optimizer.param_groups[0]["lr"]
+                    print(
+                        f"step {step}, train loss {last_loss:.4f}, "
+                        f"lr {learning_rate:.6g}, "
+                        f"grad norm {self.last_gradient_norm:.4f}"
+                    )
                     self._log_metrics(
-                        {"step": step, "split": "train", "loss": last_loss}
+                        {
+                            "step": step,
+                            "split": "train",
+                            "loss": last_loss,
+                            "learning_rate": learning_rate,
+                            "gradient_norm": self.last_gradient_norm,
+                        }
                     )
 
                 if validation_loader is not None and step % eval_interval == 0:
